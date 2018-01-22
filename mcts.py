@@ -51,14 +51,14 @@ class Node:
             # select
             self.select()
             score = (self.U + self.Q * self.q) + self.state.illegal_actions_to_minus()
-            action = np.argmax(score)
+            action = randargmax(score)
             self.N[[action]] += virtual_loss
             self.W[[action]] += virtual_loss * self.q * -1
             while self.children[action] != None:
                 self = self.children[action]
                 self.select()
                 score = (self.U + self.Q * self.q) + self.state.illegal_actions_to_minus()
-                action = np.argmax(score)
+                action = randargmax(score)
                 self.N[[action]] += virtual_loss
                 self.W[[action]] += virtual_loss * self.q * -1
                 # expand
@@ -109,3 +109,6 @@ class Node:
         return pi
 
 
+def randargmax(b,**kw):
+  """ a random tie-breaking argmax"""
+  return np.argmax(np.random.random(b.shape) * (b==b.max()), **kw)
