@@ -2,6 +2,7 @@ import argparse
 import os
 import time
 import csv
+from tqdm import tqdm
 
 import gym
 import gym_self_go
@@ -81,7 +82,7 @@ def main():
 
         # make initial play_dataset
         print("Start Initial Play")
-        for i in range(args.initial_play):
+        for i in tqdm(range(args.initial_play)):
             env.reset()
             s_self_play = env.state
             play = SelfPlay(state=s_self_play, net=net_for_self_play)
@@ -139,7 +140,7 @@ def main():
         # evaluator
         rewards = []
         print("Start Evaluate Play")
-        for i in range(int(args.eval/2)):
+        for i in tqdm(range(int(args.eval/2))):
             env.reset()
             s_evaluator = env.state
             evaluator = Evaluator(state=s_evaluator, net_self_player=net_for_self_play, net_train_player=net_for_train)
@@ -160,7 +161,7 @@ def main():
 
         # get more dataset
         print("Start Self Play to get more datasets")
-        for i in range(args.play):
+        for i in tqdm(range(args.play)):
             env.reset()
             s_self_play = env.state
             play = SelfPlay(state=s_self_play, net=net_for_self_play)
