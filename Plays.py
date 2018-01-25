@@ -56,7 +56,7 @@ class SelfPlay(Play):
                           torch.FloatTensor(self.pi), torch.FloatTensor([self.z])))
         self = self.parent
         while self != None:
-            self.z = self.child.z
+            self.z = self.state.reward()
             play_data.append((torch.FloatTensor(self.mcts_node.channel), \
                               torch.FloatTensor(self.pi), torch.FloatTensor([self.z])))
             self = self.parent
