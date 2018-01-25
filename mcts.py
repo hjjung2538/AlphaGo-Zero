@@ -85,12 +85,12 @@ class Node:
             n_inputs.append(torch.FloatTensor(n_input))
 
         n_inputs = Variable(torch.stack(n_inputs)).cuda()
+        #eval
+        p, v = net(n_inputs)
+        p = F.softmax(p)
+        p = p.data.cpu().numpy()
+        v = v.data.cpu().numpy()
         for i in range(batch):
-            # eval
-            p, v = net(n_inputs)
-            p = F.softmax(p)
-            p = p.data.cpu().numpy()
-            v = v.data.cpu().numpy()
             self = leaves[i]
             self.p = p[i]*0.75 + np.random.dirichlet(np.ones([self.state.board.size**2+1])*0.03)*0.25
             # backup
