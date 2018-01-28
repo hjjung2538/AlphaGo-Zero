@@ -28,7 +28,7 @@ class SelfPlay(Play):
         self.parent = parent
         self.net = net
         self.mcts_node = mcts.Node(state=state, parent=None)
-        self.q = -1 if self.state.color == 0 else 1
+        self.q = -1 if self.state.color-1 == 0 else 1
         player_channel = np.ones((1, self.state.board.size, self.state.board.size)) * self.q
         self.mcts_node.channel = self.mcts_node.history() if self.parent == None \
             else np.concatenate((np.concatenate((self.state.board.encode()[:2],
@@ -70,7 +70,7 @@ class Evaluator(Play):
         self.net_self_player = net_self_player
         self.net_train_player = net_train_player
         self.mcts_node = mcts.Node(state=state, parent=None)
-        self.q = -1 if self.state.color == 0 else 1
+        self.q = -1 if self.state.color-1 == 0 else 1
         player_channel = np.ones((1, self.state.board.size, self.state.board.size)) * self.q
         self.mcts_node.channel = self.mcts_node.history() if self.parent == None \
             else np.concatenate((np.concatenate((self.state.board.encode()[:2],

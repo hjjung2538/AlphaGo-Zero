@@ -17,7 +17,7 @@ class Node:
         self.N = np.zeros([action_num], dtype=np.float32)
         self.W = np.zeros([action_num], dtype=np.float32)
         self.p = np.zeros([action_num], dtype=np.float32)
-        self.q = -1 if self.state.color == 0 else 1
+        self.q = -1 if self.state.color-1 == 0 else 1
         self.searched = 0
 
     def select(self):
