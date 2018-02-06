@@ -3,53 +3,56 @@ import os
 import time
 import csv
 from tqdm import tqdm
+from copy import copy
 
 import gym
 import gym_self_go
-import Plays
 from Plays import *
 import torch
 import torch.nn as nn
-import torchvision.transforms as transforms
 from torch.autograd import Variable
+import torchvision.transforms as transforms
+
 
 
 def main():
+    datasets = []
+    
     parser = argparse.ArgumentParser(description='AlphaGo-Zero Training')
     parser.add_argument('--size', default=5, type=int, choices=[3, 5, 9],
-                        help='size of Go (default: 5x5)')
+                        help='size of Go (default: 9x9)')
     parser.add_argument('--tau', '--t', default=1, type=int,
-                        help='initial infinitesimal temperature (default: 1)')
-    parser.add_argument('--search', default=50, type=int,
-                        help='number of mcts minibatch search times (default: 10)')
-    parser.add_argument('--mb', default=6, type=int,
-                        help='minibatch size of mcts (default: 8)')
+                        help='initial infinitesimal temperature')
+    parser.add_argument('--search', default=85, type=int,
+                        help='number of mcts minibatch search times')
+    parser.add_argument('--mb', default=5, type=int,
+                        help='minibatch size of mcts')
     parser.add_argument('--vl', default=1, type=int,
-                        help='virtual loss (to ensure each thread evaluates different nodes) (default: 1)')
-    parser.add_argument('--initial-play', '--iplay', default=2000, type=int,
-                        help='number of self play times at initial stage to get play datasets (default: 2000)')
-    parser.add_argument('--eval', default=110, type=int,
-                        help='number of play times to evaluate neural network (default: 100)')
-    parser.add_argument('--train-epochs', default=3, type=int,
-                        help='number of train epochs to run (default: 5)')
+                        help='virtual loss (to ensure each thread evaluates different nodes)')
+    parser.add_argument('--initial-play', '--iplay', default=500, type=int,
+                        help='number of self play times at initial stage to get play datasets')
+    parser.add_argument('--eval', default=100, type=int,
+                        help='number of play times to evaluate neural network')
+    parser.add_argument('--train-epochs', default=6, type=int,
+                        help='number of train epochs to run')
     parser.add_argument('--tb', default=36, type=int,
-                        help='minibatch size of neural network training (default: 20)')
-    parser.add_argument('--lr', default=0.01, type=float,
-                        help='initial learning rate (default: 0.1)')
+                        help='minibatch size of neural network training')
+    parser.add_argument('--lr', default=0.0001, type=float,
+                        help='initial learning rate')
     parser.add_argument('--momentum', '--m', default=0.9, type=float,
                         help='initial momentum ')
     parser.add_argument('--wd', default=1e-4, type=float,
                         help='weight decay (default: 1e-4)')
     parser.add_argument('--play', default=250, type=int,
-                        help='number of self play times to get more datasets (default: 100)')
+                        help='number of self play times to get more datasets')
     parser.add_argument('--epochs', default=200, type=int,
-                        help='number of total play epochs to run (default: 5)')
+                        help='number of total play epochs to run')
     parser.add_argument('--start-epoch', default=0, type=int,
                         help='manual epoch number (useful on restarts)')
     parser.add_argument('--resume', default='', type=str,
                         help='path to latest checkpoint (default: none)')
-    parser.add_argument('--checkpoint', default=50, type=int,
-                        help='checkpoint to save (default: 50)')
+    parser.add_argument('--checkpoint', default=2, type=int,
+                        help='checkpoint to save')
     args = parser.parse_args()
 
     #make model
@@ -63,10 +66,10 @@ def main():
             checkpoint = torch.load(args.resume)
             env = gym.make('SelfGo{}x{}-v0'.format(checkpoint['size'],checkpoint['size']))
             args.start_epoch = checkpoint['epoch']
-            net_for_self_play.load_state_dict(checkpoint['state_dict'])
-            net_for_train.load_state_dict(checkpoint['state_dict2'])
+            net_for_self_play.load_state_dict(checkpoint['state_dict_self_play'])
+            net_for_train.load_state_dict(checkpoint['state_dict_train'])
             data_loader = checkpoint['data_loader']
-            Plays.dataset = checkpoint['datasets']
+            datasets = checkpoint['datasets']
             print("=> loaded checkpoint '{}' (epoch {})".format(args.resume, checkpoint['epoch']))
         else:
             print("=> no checkpoint found at '{}'".format(args.resume))
@@ -86,9 +89,10 @@ def main():
             env.reset()
             s_self_play = env.state
             play = SelfPlay(state=s_self_play, net=net_for_self_play)
-            play.play(t=args.tau, iter=args.search, batch=args.mb, virtual_loss=args.vl)
+            play_data = play.play(t=args.tau, iter=args.search, batch=args.mb, virtual_loss=args.vl)
+            datasets.append(dihedral_transformation(play_data))
         print("End Initial Play")
-        cat_dataset = torch.utils.data.ConcatDataset(Plays.dataset)
+        cat_dataset = torch.utils.data.ConcatDataset(datasets)
         data_loader = torch.utils.data.DataLoader(cat_dataset, batch_size=args.tb)
 
     # define loss ft (criterion) and optimizer
@@ -96,7 +100,7 @@ def main():
     criterion_mse = nn.MSELoss()
     optimizer = torch.optim.SGD(net_for_train.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.wd)
 
-    # train - evaluate - self play and get data => how many times?
+    # train - evaluate - self play and get more data 
     for epoch in range(args.start_epoch, args.epochs):
         for train_epoch in range(args.train_epochs):
             for (i, (s, pi, z)) in enumerate(data_loader):
@@ -144,9 +148,8 @@ def main():
             env.reset()
             s_evaluator = env.state
             evaluator = Evaluator(state=s_evaluator, net_self_player=net_for_self_play, net_train_player=net_for_train)
-            rewards.append(evaluator.play(t=args.tau, iter=args.search, batch=args.mb, virtual_loss=args.vl))
-            evaluator_v2 = Evaluator(state=s_evaluator, net_self_player=net_for_self_play, net_train_player=net_for_train)
-            rewards.append(evaluator_v2.play_v2(t=args.tau, iter=args.search, batch=args.mb, virtual_loss=args.vl))
+            rewards.append(evaluator.play_train_net_white(t=args.tau, iter=args.search, batch=args.mb, virtual_loss=args.vl))
+            rewards.append(evaluator.play_train_net_black(t=args.tau, iter=args.search, batch=args.mb, virtual_loss=args.vl))
         print("End Evaluate Play")
         print('[{}/{}]. Winning rate : Net train : {}% Net self-play : {}%'.\
               format(epoch+1, args.epochs, 100*rewards.count(1)/len(rewards),100*rewards.count(-1)/len(rewards)))
@@ -155,9 +158,9 @@ def main():
             csvwriter.writerow(['[{}/{}]. Winning rate : Net train : {}% Net self-play : {}%'.\
               format(epoch+1, args.epochs, 100*rewards.count(1)/len(rewards),100*rewards.count(-1)/len(rewards))])
             
-        if 100*rewards.count(1)/len(rewards) >= 55:
+        if 100*rewards.count(1)/len(rewards) >= 100*rewards.count(-1)/len(rewards):
             net_for_self_play = net_for_train
-            Plays.dataset = Plays.dataset[args.play:]
+            datasets = datasets[args.play:]
 
         # get more dataset
         print("Start Self Play to get more datasets")
@@ -165,8 +168,9 @@ def main():
             env.reset()
             s_self_play = env.state
             play = SelfPlay(state=s_self_play, net=net_for_self_play)
-            play.play(t=args.tau, iter=args.search, batch=args.mb, virtual_loss=args.vl)
-        cat_dataset = torch.utils.data.ConcatDataset(Plays.dataset)
+            play_data = play.play(t=args.tau, iter=args.search, batch=args.mb, virtual_loss=args.vl)
+            datasets.append(dihedral_transformation(play_data))
+        cat_dataset = torch.utils.data.ConcatDataset(datasets)
         data_loader = torch.utils.data.DataLoader(cat_dataset, batch_size=args.tb)
         print("End Self Play")
 
@@ -175,14 +179,83 @@ def main():
             torch.save({
                 'size': args.size,
                 'epoch': epoch+1,
-                'state_dict': net_for_self_play.state_dict(),
-                'state_dict2': net_for_train.state_dict(),
+                'state_dict_self_play': net_for_self_play.state_dict(),
+                'state_dict_train': net_for_train.state_dict(),
                 'data_loader': data_loader,
-                'datasets' : Plays.dataset
+                'datasets' : datasets
                 }, 'checkpoint.pth.tar')
 
     # play with pachi and get winning rate
 
 
+def rotate_square_matrix_right_90(matrix):
+    """Rotate an NxN matrix 90 degrees clockwise."""
+    n = len(matrix)
+    for layer in range((n + 1) // 2):
+        for index in range(layer, n - 1 - layer, 1):
+            matrix[layer][index], matrix[n - 1 - index][layer], \
+                matrix[index][n - 1 - layer], matrix[n - 1 - layer][n - 1 - index] = \
+                matrix[n - 1 - index][layer], matrix[n - 1 - layer][n - 1 - index], \
+                matrix[layer][index], matrix[index][n - 1 - layer]
+    return matrix    
+    
+    
+def dihedral_transformation(play_data):
+    """Rotate(90, 180, 270 degrees clockwise) and flip Go board(data augmentation)"""
+    play_data_list = []
+    for i, (s, pi, z) in enumerate(play_data):
+        data_aug = []
+        for l in range(8):
+            data_aug.append([])
+        #rotate, reflect s
+        for j in s:
+            #rotation
+            data_aug[0].append(j)
+            j2 = copy(j)
+            data_aug[1].append(rotate_square_matrix_right_90(j2))
+            j3 = copy(j2)
+            data_aug[2].append(rotate_square_matrix_right_90(j3))
+            j4 = copy(j3)
+            data_aug[3].append(rotate_square_matrix_right_90(j4))
+            #reflection
+            j5 = copy(j)
+            data_aug[4].append(np.fliplr(j5))
+            j6 = copy(data_aug[4][-1])
+            data_aug[5].append(rotate_square_matrix_right_90(j6))
+            j7 = copy(j6)
+            data_aug[6].append(rotate_square_matrix_right_90(j7))
+            j8 = copy(j7)
+            data_aug[7].append(rotate_square_matrix_right_90(j8))
+        #rotate, reflect pi
+        #rotation
+        data_aug[0].append(pi)
+        pi2 = copy(pi)
+        p2 = rotate_square_matrix_right_90(pi2[:25].reshape(5,5))
+        data_aug[1].append(np.append(p2.reshape(1,25), pi[25:])) 
+        pi3 = copy(p2)
+        p3 = rotate_square_matrix_right_90(pi3)                                    
+        data_aug[2].append(np.append(p3.reshape(1,25), pi[25:]))
+        pi4 = copy(p3)
+        p4 = rotate_square_matrix_right_90(pi4)
+        data_aug[3].append(np.append(p4.reshape(1,25), pi[25:]))
+        #reflection
+        pi5 = copy(pi)   
+        p5 = np.fliplr(pi[:25].reshape(5,5))
+        data_aug[4].append(np.append(p5.reshape(1,25), pi[25:])) 
+        pi6 = copy(p5)
+        p6 = rotate_square_matrix_right_90(pi6)                                    
+        data_aug[5].append(np.append(p6.reshape(1,25), pi[25:]))
+        pi7 = copy(p6)
+        p7 = rotate_square_matrix_right_90(pi7)                                    
+        data_aug[6].append(np.append(p7.reshape(1,25), pi[25:]))
+        pi8 = copy(p7)
+        p8 = rotate_square_matrix_right_90(pi8)                                    
+        data_aug[7].append(np.append(p8.reshape(1,25), pi[25:]))
+        for data in data_aug:
+            play_data_list.append((torch.FloatTensor(np.concatenate(data[:17]).reshape(17,5,5)), 
+                              torch.FloatTensor(data[17]), torch.FloatTensor([z])))
+    return play_data_list
+
+                                  
 if __name__ == '__main__':
     main()
