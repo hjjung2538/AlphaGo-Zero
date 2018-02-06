@@ -1,28 +1,11 @@
 import numpy as np
-from abc import *
 import mcts
 from Network import Net
 from Network import ResidualBlock
 import torch
-import torchvision.transforms as transforms
-
-dataset = []
-
-class Play(metaclass=ABCMeta):
-    @abstractmethod
-    def select_action(self):
-        pass
-
-    @abstractmethod
-    def next_state(self):
-        pass
-
-    @abstractmethod
-    def play(self):
-        pass
 
 
-class SelfPlay(Play):
+class SelfPlay:
     def __init__(self, state, net, parent=None):
         self.state = state
         self.parent = parent
@@ -52,18 +35,19 @@ class SelfPlay(Play):
             self = self.child
         self.z = self.state.reward()
         self.pi = self.mcts_node.pi(t=t, iter=iter, batch=batch, virtual_loss=virtual_loss, net=self.net)
-        play_data.append((torch.FloatTensor(self.mcts_node.channel), \
-                          torch.FloatTensor(self.pi), torch.FloatTensor([self.z])))
+        player_channel = np.ones((1, self.state.board.size, self.state.board.size)) * self.q
+        self.mcts_node.channel = np.concatenate((np.concatenate((self.state.board.encode()[:2],
+                                                 self.parent.mcts_node.channel))[:16], player_channel))
+        play_data.append((self.mcts_node.channel, self.pi, self.z))
         self = self.parent
         while self != None:
             self.z = self.state.reward()
-            play_data.append((torch.FloatTensor(self.mcts_node.channel), \
-                              torch.FloatTensor(self.pi), torch.FloatTensor([self.z])))
+            play_data.append((self.mcts_node.channel, self.pi, self.z))
             self = self.parent
-        dataset.append(play_data)
+        return play_data
 
 
-class Evaluator(Play):
+class Evaluator:
     def __init__(self, state, net_self_player, net_train_player, parent=None):
         self.state = state
         self.parent = parent
@@ -88,18 +72,16 @@ class Evaluator(Play):
         self.child = Evaluator(state=child_state, net_self_player=self.net_self_player,\
                                net_train_player=self.net_train_player, parent=self)
 
-    def play(self, t, iter, batch, virtual_loss):
+    def play_train_net_white(self, t, iter, batch, virtual_loss):
         while self.state.board.is_terminal != True:
             self.next_state(t=t, iter=iter, batch=batch, virtual_loss=virtual_loss, net=self.net_self_player)
             self = self.child
             if self.state.board.is_terminal != True:
                 self.next_state(t=t, iter=iter, batch=batch, virtual_loss=virtual_loss, net=self.net_train_player)
                 self = self.child
-            else:
-                break
-        return self.state.reward()
+        return self.state.reward_when_white()
 
-    def play_v2(self, t, iter, batch, virtual_loss):
+    def play_train_net_black(self, t, iter, batch, virtual_loss):
         while self.state.board.is_terminal != True:
             self.next_state(t=t, iter=iter, batch=batch, virtual_loss=virtual_loss, net=self.net_train_player)
             self = self.child
@@ -108,7 +90,4 @@ class Evaluator(Play):
                 self = self.child
             else:
                 break
-        return self.state.reward_v2()
-
-
-
+        return self.state.reward_when_black()
