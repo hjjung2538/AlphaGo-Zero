@@ -79,6 +79,8 @@ class Evaluator:
             if self.state.board.is_terminal != True:
                 self.next_state(t=t, iter=iter, batch=batch, virtual_loss=virtual_loss, net=self.net_train_player)
                 self = self.child
+            else:
+                break
         return self.state.reward_when_white()
 
     def play_train_net_black(self, t, iter, batch, virtual_loss):
