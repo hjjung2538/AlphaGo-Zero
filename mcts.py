@@ -21,7 +21,7 @@ class Node:
         self.searched = 0
 
     def select(self):
-        c = 1
+        c = 1.38
         self.U = c * (sqrt(sum(self.N))) / (1 + self.N) * self.p
         self.Q = np.divide(self.W, self.N, out=np.zeros_like(self.W), where=self.N != 0)
 
@@ -61,7 +61,7 @@ class Node:
                 action = randargmax(score)
                 self.N[[action]] += virtual_loss
                 self.W[[action]] += virtual_loss * self.q * -1
-                # expand
+            # expand
             if self.state.board.is_terminal == False:
                 new_state = self.state.act(action)
                 self.expand(new_state, action)
@@ -69,9 +69,9 @@ class Node:
                 leaf = self
                 n_input = self.history()
             else:
-                ##if node is terminal => return or not?
+                #if node is terminal
                 leaf = self
-                n_input = self.channel
+                n_input = self.history()
         return leaf, n_input
 
     def eval_and_backup(self, batch, virtual_loss, net):
@@ -94,10 +94,18 @@ class Node:
             self = leaves[i]
             self.p = p[i]*0.75 + np.random.dirichlet(np.ones([self.state.board.size**2+1])*0.03)*0.25
             # backup
-            while self.parent != None:
-                self.parent.N[[self.action]] += 1
-                self.parent.W[[self.action]] += v[i]
-                self = self.parent
+            if self.state.board.is_terminal == False:
+                while self.parent != None:
+                    self.parent.N[[self.action]] += 1
+                    self.parent.W[[self.action]] += v[i]
+                    self = self.parent
+            else:
+            #if node is terminal => backup z
+                reward = self.state.reward()
+                while self.parent != None:
+                    self.parent.N[[self.action]] += 1
+                    self.parent.W[[self.action]] += reward
+                    self = self.parent
 
     def pi(self, t, iter, batch, virtual_loss, net):
         action_num = self.state.board.size ** 2 + 1
